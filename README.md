@@ -28,12 +28,17 @@ exactly, including fully transparent pixels' colours.
 
 Local grade on the kit's practice set (`grade-local --driver process`):
 
-- **725.726 / 1.000.000** (mean 725,726 points per instance), all 8 instances
+- **717.603 / 1.000.000** (mean 717,603 points per instance), all 8 instances
   answered, deterministic (two runs byte-identical).
+- v1 scored 725.726 locally but **timed out on the server** (wall budget 60 s):
+  the server runs the same code slower than this machine, so v2 trades
+  ~8k points for ~11 s of wall: DP updates only at length-symbol interval
+  ends, the filter screen drops minsum/pairs (brute force beats pairs under
+  the optimal deflate), and the LZ77 chain depth is 96 instead of 192.
 - Reference points: the kit's scale compressor scores 666,7 by construction;
   zlib level 9 on the same screened data scores 701,0; the house baseline
   (fixed Paeth, no form reduction) scores ~420 on this set.
-- Wall time for the whole set of 8: ~35 s on this machine (limit 60 s).
+- Wall time for the whole set of 8: ~25 s on this machine (limit 60 s).
 
 ## Run it
 

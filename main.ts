@@ -2,11 +2,12 @@
 //
 // A lossless PNG re-encoder: it reads each 1280x720 RGBA screenshot, picks the
 // smallest exact form for it (palette / grey / grey+alpha / RGB / RGBA, with a
-// tRNS key where one transparent value fits), chooses each row's filter by the
-// kit's screen (fixed filters, minimum-sum, fewest-pairs, and brute force
-// weighed by zlib), then writes the filtered bytes with an optimal-parsing
-// deflate (hash-chain LZ77 + dynamic-programming optimal parse, iterated
-// Huffman lengths), all in plain Node with no dependencies.
+// tRNS key where one transparent value fits), chooses each row's filter by a
+// screen over fixed filters and per-row brute force weighed by zlib, then
+// writes the filtered bytes with an optimal-parsing deflate (hash-chain LZ77
+// + dynamic-programming optimal parse, iterated Huffman lengths), all in
+// plain Node with no dependencies. The DP records a match only at
+// length-symbol interval ends, which prunes most of its updates.
 //
 // Runs as `node /bot/main.ts`: reads /input/<id>/image.png, writes
 // /output/<id>/image.png. One wall budget covers all 8 instances, so the work
@@ -369,9 +370,13 @@ function filtered(samples, width, height, bpp, choice, raw = new Uint8Array(heig
 
 const FILTERS = {
   palette: [0],
-  paletteByLuminance: [0, 'minsum', 'brute'],
-  channels: [0, 1, 2, 4, 'minsum', 'pairs', 'brute'],
+  paletteByLuminance: [0, 'brute'],
+  channels: [0, 1, 2, 4, 'brute'],
 };
+// Screen trim (v2 iter 2): 'minsum' never won a practice instance and
+// 'pairs' won only i006 under zlib-6 while brute force beats it under the
+// optimal deflate; both cost five filter-row passes per row. Dropping them
+// saves ~3 s of screen time at no measured score cost.
 
 function formsOf(rgba) {
   const { opaque, grey, colours } = analyse(rgba);
@@ -469,6 +474,15 @@ for (let s = 0; s < 30; s++) {
     DIST_EVAL[d] = d - base;
   }
 }
+
+// Lengths at the end of a length-symbol interval: within one interval the
+// match cost is constant, so the DP only needs to record the interval ends
+// (plus the candidate's full length). This prunes most DP updates — the
+// inner loop ran ~500M iterations per rich instance — at a ~2k-point cost.
+const LEN_IS_END = new Uint8Array(259);
+for (let l = 3; l <= 258; l++) LEN_IS_END[l] = (l === 258 || LEN_SYM[l] !== LEN_SYM[l + 1]) ? 1 : 0;
+const LEN_ENDS = [];
+for (let l = 3; l <= 258; l++) if (LEN_IS_END[l]) LEN_ENDS.push(l);
 
 const FIXED_LITLEN = new Int16Array(288);
 for (let i = 0; i < 288; i++) FIXED_LITLEN[i] = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8;
@@ -743,9 +757,16 @@ function optimalParse(data, litLen, distLen, maxChain) {
         }
         if (len > bestLen) {
           const dc = distCost[dist];
-          for (let l = bestLen + 1; l <= len; l++) {
+          for (let k = 0; k < LEN_ENDS.length; k++) {
+            const l = LEN_ENDS[k];
+            if (l <= bestLen) continue;
+            if (l > len) break;
             const c = base + lenCost[l] + dc;
             if (c < dp[i + l]) { dp[i + l] = c; choiceLen[i + l] = l; choiceDist[i + l] = dist; }
+          }
+          if (!LEN_IS_END[len]) {
+            const c = base + lenCost[len] + dc;
+            if (c < dp[i + len]) { dp[i + len] = c; choiceLen[i + len] = len; choiceDist[i + len] = dist; }
           }
           bestLen = len;
           if (bestLen >= 258) break;
@@ -917,10 +938,11 @@ function emitBlock(w, ops, litLen, distLen, isLast) {
 // Compress filtered bytes as one deflate stream: a greedy lazy parse seeds the
 // frequencies, one optimal-parse pass under the iterated Huffman lengths
 // follows, and the block is emitted with dynamic or fixed Huffman, whichever
-// is smaller. Chain depth 192: measured the best size within the wall budget
-// on the practice set (chain 128: smaller but worse; chain 256: no better).
+// is smaller. Chain depth 96: the server's wall budget (v1 at chain 192 timed
+// out on the server despite ~36 s locally) forces a shorter chain; chain 96
+// keeps ~718k of the ~724k while cutting the deflate time by about a third.
 function deflateOptimal(data) {
-  const MAX_CHAIN = 192;
+  const MAX_CHAIN = 96;
   let ops = greedyParse(data, MAX_CHAIN);
   const { litFreq, distFreq } = frequenciesOf(ops);
   const litLen = huffmanLengths(floored(litFreq), 15);
