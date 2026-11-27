@@ -938,11 +938,13 @@ function emitBlock(w, ops, litLen, distLen, isLast) {
 // Compress filtered bytes as one deflate stream: a greedy lazy parse seeds the
 // frequencies, one optimal-parse pass under the iterated Huffman lengths
 // follows, and the block is emitted with dynamic or fixed Huffman, whichever
-// is smaller. Chain depth 96: the server's wall budget (v1 at chain 192 timed
-// out on the server despite ~36 s locally) forces a shorter chain; chain 96
-// keeps ~718k of the ~724k while cutting the deflate time by about a third.
+// is smaller. Chain depth 192 again (v3): the v2 server run measured
+// wall_ms 84.714 over 2 executions = ~42,4 s per run, i.e. the server runs
+// this code ~1,73x slower than this machine — so a ~30 s local run lands
+// ~52 s on the server, inside the 60 s budget (v1 timed out at ~62 s
+// server-side). Chain 192 restores the ~8k points chain 96 gave up.
 function deflateOptimal(data) {
-  const MAX_CHAIN = 96;
+  const MAX_CHAIN = 192;
   let ops = greedyParse(data, MAX_CHAIN);
   const { litFreq, distFreq } = frequenciesOf(ops);
   const litLen = huffmanLengths(floored(litFreq), 15);

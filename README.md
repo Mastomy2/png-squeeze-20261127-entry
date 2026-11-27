@@ -14,10 +14,11 @@ exactly, including fully transparent pixels' colours.
    (≤256 colours, by count or by luminance) when one fits, grey or grey+alpha
    when every pixel is grey, RGB when every pixel is opaque, RGBA otherwise,
    with a tRNS key when a single transparent value fits.
-2. **Filter screen** — each row's filter is chosen among fixed filters,
-   minimum-sum, fewest-distinct-pairs, and brute force (each filter weighed by
-   zlib over the row after the 32 KiB before it); the winning form+filter is
-   the one whose zlib level-6 stream is smallest.
+2. **Filter screen** — each row's filter is chosen among fixed filters and
+   brute force (each filter weighed by zlib over the row after the 32 KiB
+   before it); the winning form+filter is the one whose zlib level-6 stream
+   is smallest. (minsum/pairs dropped in v2: minsum never won, and brute
+   force beats pairs under the optimal deflate.)
 3. **Optimal-parsing deflate** — the filtered bytes are compressed by a
    from-scratch deflate: a hash-chain LZ77 matcher, a greedy lazy parse that
    seeds the symbol frequencies, then a dynamic-programming optimal parse
@@ -28,17 +29,22 @@ exactly, including fully transparent pixels' colours.
 
 Local grade on the kit's practice set (`grade-local --driver process`):
 
-- **717.603 / 1.000.000** (mean 717,603 points per instance), all 8 instances
-  answered, deterministic (two runs byte-identical).
-- v1 scored 725.726 locally but **timed out on the server** (wall budget 60 s):
-  the server runs the same code slower than this machine, so v2 trades
-  ~8k points for ~11 s of wall: DP updates only at length-symbol interval
-  ends, the filter screen drops minsum/pairs (brute force beats pairs under
-  the optimal deflate), and the LZ77 chain depth is 96 instead of 192.
+- **724.122 / 1.000.000** (mean 724,122 points per instance), all 8 instances
+  answered, deterministic (two runs byte-identical; result_sha256
+  9c776946b4ece4dadd34eeba25d351f964ebc41df3baaa050e61baf6aa156062).
+- v2 scored 717.603 locally and **717.603 on the server (rank 1.154/4.924,
+  prize-eligible)**; v1 scored 725.726 locally but **timed out on the
+  server** (wall budget 60 s). The v2 server run measured wall_ms 84.714
+  over 2 executions, i.e. ~42,4 s per run — the server runs this code ~1,73x
+  slower than this machine. v3 restores chain depth 192: +6,519 points over
+  v2 for ~5 s more wall (~30 s local, ~52 s estimated on the server, inside
+  the 60 s budget; v1's ~36 s local ran ~62 s server-side and was killed).
+  The top-50 bar was 800.383 on 28 Nov 07:40 WITA and the rank-1.000 line
+  719.975 — v3 targets the top 1.000, not the (unreachable) top 50.
 - Reference points: the kit's scale compressor scores 666,7 by construction;
   zlib level 9 on the same screened data scores 701,0; the house baseline
   (fixed Paeth, no form reduction) scores ~420 on this set.
-- Wall time for the whole set of 8: ~25 s on this machine (limit 60 s).
+- Wall time for the whole set of 8: ~30 s on this machine (limit 60 s).
 
 ## Run it
 
